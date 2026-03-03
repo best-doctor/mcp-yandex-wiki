@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check version for tag
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          package_version = data['project']['version']
+          tag = os.environ['GITHUB_REF_NAME']
+          expected = tag[1:] if tag.startswith('v') else tag
+
+          if package_version != expected:
+              raise SystemExit(
+                  f"Version mismatch: pyproject.toml has {package_version}, but tag is {tag}. "
+                  f"Set version to {expected} before creating tag."
+              )
+          print(f"Version matched: {package_version}")
+          PY
+
+      - name: Syntax check
+        run: uv run python -m compileall -q yandex_wiki_mcp
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-artifacts
+          path: dist/
+          if-no-files-found: error
