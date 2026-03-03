@@ -15,7 +15,7 @@ mcp = FastMCP("yandex-wiki")
 DEFAULT_FIELDS = "content,attributes,breadcrumbs,redirect"
 HTTP_TRANSPORTS = {"http", "streamable-http", "sse"}
 SERVER_READONLY = False
-TOOLS_CACHE_PREFIX = "yandex-wiki-mcp:tools_cache"
+TOOLS_CACHE_PREFIX = "yandex_wiki_mcp:tools_cache"
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:

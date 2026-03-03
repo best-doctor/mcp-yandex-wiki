@@ -51,7 +51,7 @@
 docker run -p 6379:6379 --name redis-cache -d redis:alpine
 
 TRACKER_TOKEN=your_token TRACKER_ORG_ID=your_org_id \
-  TOOLS_CACHE_ENABLED=true REDIS_ENDPOINT=127.0.0.1 REDIS_PORT=6379 uvx yandex-wiki-mcp
+  TOOLS_CACHE_ENABLED=true REDIS_ENDPOINT=127.0.0.1 REDIS_PORT=6379 uvx yandex_wiki_mcp
 ```
 
 Production-подобный пример:
@@ -64,23 +64,23 @@ TOOLS_CACHE_ENABLED=true \
   REDIS_DB=0 \
   REDIS_PASSWORD=secret \
   TOOLS_CACHE_REDIS_TTL=7200 \
-  uvx yandex-wiki-mcp
+  uvx yandex_wiki_mcp
 ```
 
 ## Быстрый запуск (через PyPI)
 
 ```bash
 TRACKER_TOKEN=your_token TRACKER_ORG_ID=your_org_id \
-  uvx yandex-wiki-mcp
+  uvx yandex_wiki_mcp
 
 TRACKER_TOKEN=your_token TRACKER_ORG_ID=your_org_id \
-  uvx yandex-wiki-mcp-ro
+  uvx yandex_wiki_mcp_ro
 ```
 
 Альтернатива (после установки):
 
 ```bash
-pip install yandex-wiki-mcp
+pip install yandex_wiki_mcp
 python -m yandex_wiki_mcp
 ```
 
@@ -89,19 +89,22 @@ python -m yandex_wiki_mcp
 ### Claude Code
 
 ```bash
-claude mcp add yandex-wiki uvx yandex-wiki-mcp \
+claude mcp add yandex-wiki uvx yandex_wiki_mcp \
   -e WIKI_TOKEN=your_token \
   -e WIKI_ORG_ID=your_org_id
 
-claude mcp add yandex-wiki-ro uvx yandex-wiki-mcp-ro \
+claude mcp add yandex-wiki-ro uvx yandex_wiki_mcp_ro \
   -e WIKI_TOKEN=your_token \
   -e WIKI_ORG_ID=your_org_id
+```
+
+`uvx` нормализует имена исполняемых файлов, поэтому для запуска read-only обычно используется `yandex_wiki_mcp_ro` (с `_`), даже если в документации встречается `yandex-wiki-mcp-ro`.
 ```
 
 Если используете `TRACKER_*`-переменные, замените их на:
 
 ```bash
-claude mcp add yandex-wiki uvx yandex-wiki-mcp \
+claude mcp add yandex-wiki uvx yandex_wiki_mcp \
   -e TRACKER_TOKEN=your_token \
   -e TRACKER_ORG_ID=your_org_id
 ```
@@ -111,12 +114,12 @@ claude mcp add yandex-wiki uvx yandex-wiki-mcp \
 ```toml
 [mcp_servers.yandex-wiki]
 command = "uvx"
-args = ["yandex-wiki-mcp"]
+args = ["yandex_wiki_mcp"]
 env = { WIKI_TOKEN = "your_token", WIKI_ORG_ID = "your_org_id" }
 
 [mcp_servers.yandex-wiki-ro]
 command = "uvx"
-args = ["yandex-wiki-mcp-ro"]
+args = ["yandex_wiki_mcp_ro"]
 env = { WIKI_TOKEN = "your_token", WIKI_ORG_ID = "your_org_id" }
 ```
 
@@ -127,7 +130,7 @@ env = { WIKI_TOKEN = "your_token", WIKI_ORG_ID = "your_org_id" }
   "mcpServers": {
     "yandex-wiki": {
       "command": "uvx",
-      "args": ["yandex-wiki-mcp"],
+      "args": ["yandex_wiki_mcp"],
       "env": {
         "WIKI_TOKEN": "your_token",
         "WIKI_ORG_ID": "your_org_id"
@@ -135,7 +138,7 @@ env = { WIKI_TOKEN = "your_token", WIKI_ORG_ID = "your_org_id" }
     },
     "yandex-wiki-ro": {
       "command": "uvx",
-      "args": ["yandex-wiki-mcp-ro"],
+      "args": ["yandex_wiki_mcp_ro"],
       "env": {
         "WIKI_TOKEN": "your_token",
         "WIKI_ORG_ID": "your_org_id"

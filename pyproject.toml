@@ -16,18 +16,18 @@ dependencies = [
 keywords = ["mcp", "yandex", "wiki", "fastmcp"]
 
 [project.scripts]
-yandex-wiki-mcp = "yandex-wiki-mcp.server:main"
-yandex-wiki-mcp-ro = "yandex-wiki-mcp.server:main_readonly"
+yandex_wiki_mcp = "yandex_wiki_mcp.server:main"
+yandex_wiki_mcp_ro = "yandex_wiki_mcp.server:main_readonly"
 
 [tool.hatch.build]
 ignore-vcs = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["yandex-wiki-mcp"]
+packages = ["yandex_wiki_mcp"]
 
 [tool.hatch.build.targets.sdist]
 only-include = [
-  "yandex-wiki-mcp",
+  "yandex_wiki_mcp",
   "README.md",
   "pyproject.toml",
 ]
