@@ -7,6 +7,7 @@ import os
 from typing import Any
 from urllib.parse import urlparse
 
+import backoff
 import httpx
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -373,15 +374,30 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
     }
     request_url = f"{base_url}{path}"
 
-    try:
+    @backoff.on_exception(
+        backoff.expo,
+        (
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.NetworkError,
+            httpx.RemoteProtocolError,
+        ),
+        max_tries=4,
+        max_time=30,
+    )
+    async def _send_request() -> httpx.Response:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(
+            return await client.request(
                 method=method,
                 url=request_url,
                 headers=headers,
                 params=params,
                 json=body,
             )
+
+    try:
+        response = await _send_request()
     except httpx.TimeoutException:
         return {
             "ok": False,
@@ -421,8 +437,20 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
 
 
 async def _request_get(path: str, params: dict | None = None, *, cache_slug: str | None = None) -> Any:
+    @backoff.on_predicate(
+        backoff.expo,
+        lambda result: (
+            _is_error_result(result)
+            and result.get("status_code") in {502, 503, 504}
+        ),
+        max_tries=4,
+        max_time=30,
+    )
+    async def _request_get_with_retry() -> Any:
+        return await _request(method="GET", path=path, params=params)
+
     if TOOLS_CACHE is None:
-        payload = await _request(method="GET", path=path, params=params)
+        payload = await _request_get_with_retry()
         return _with_cache_hit(payload, cache_hit=False)
 
     cache_key = _cache_key_for_get(path=path, params=params)
@@ -438,7 +466,7 @@ async def _request_get(path: str, params: dict | None = None, *, cache_slug: str
         )
         return _with_cache_hit(cached_payload, cache_hit=True)
 
-    payload = await _request(method="GET", path=path, params=params)
+    payload = await _request_get_with_retry()
     if _is_error_result(payload):
         return _with_cache_hit(payload, cache_hit=False)
 
