@@ -382,19 +382,23 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
             httpx.ReadError,
             httpx.NetworkError,
             httpx.RemoteProtocolError,
+            httpx.HTTPStatusError,
         ),
         max_tries=4,
         max_time=30,
+        giveup=lambda e: isinstance(e, httpx.HTTPStatusError) and e.response is not None and e.response.status_code < 500,
     )
     async def _send_request() -> httpx.Response:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            return await client.request(
+            response = await client.request(
                 method=method,
                 url=request_url,
                 headers=headers,
                 params=params,
                 json=body,
             )
+            response.raise_for_status()
+            return response
 
     try:
         response = await _send_request()
@@ -404,6 +408,25 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
             "status_code": 504,
             "url": request_url,
             "error": "Таймаут при обращении к API Yandex Wiki.",
+        }
+    except httpx.HTTPStatusError as exc:
+        response = exc.response
+        if response is None:
+            return {
+                "ok": False,
+                "status_code": 502,
+                "url": request_url,
+                "error": f"Ошибка HTTP при обращении к API Yandex Wiki: {exc}",
+            }
+        try:
+            payload = response.json()
+        except Exception:
+            payload = response.text
+        return {
+            "ok": False,
+            "status_code": response.status_code,
+            "url": str(response.request.url),
+            "response": payload,
         }
     except httpx.HTTPError as exc:
         return {
@@ -437,20 +460,8 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
 
 
 async def _request_get(path: str, params: dict | None = None, *, cache_slug: str | None = None) -> Any:
-    @backoff.on_predicate(
-        backoff.expo,
-        lambda result: (
-            _is_error_result(result)
-            and result.get("status_code") in {502, 503, 504}
-        ),
-        max_tries=4,
-        max_time=30,
-    )
-    async def _request_get_with_retry() -> Any:
-        return await _request(method="GET", path=path, params=params)
-
     if TOOLS_CACHE is None:
-        payload = await _request_get_with_retry()
+        payload = await _request(method="GET", path=path, params=params)
         return _with_cache_hit(payload, cache_hit=False)
 
     cache_key = _cache_key_for_get(path=path, params=params)
@@ -466,7 +477,7 @@ async def _request_get(path: str, params: dict | None = None, *, cache_slug: str
         )
         return _with_cache_hit(cached_payload, cache_hit=True)
 
-    payload = await _request_get_with_retry()
+    payload = await _request(method="GET", path=path, params=params)
     if _is_error_result(payload):
         return _with_cache_hit(payload, cache_hit=False)
 
