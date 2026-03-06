@@ -7,21 +7,42 @@ on:
   workflow_dispatch:
     inputs: {}
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    needs: []
-    environment:
-      name: pypi
-      url: https://pypi.org/p/yandex-wiki-mcp
-    permissions:
-      id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
+
+      - name: Check version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          package_version = data['project']['version']
+          tag = os.environ['GITHUB_REF_NAME']
+          expected = tag[1:] if tag.startswith('v') else tag
+
+          if package_version != expected:
+              raise SystemExit(
+                  f"Version mismatch: pyproject.toml has {package_version}, but tag is {tag}. "
+                  f"Set version to {expected} before creating tag."
+              )
+          print(f"Version matched: {package_version}")
+          PY
+
+      - name: Syntax check
+        run: uv run python -m compileall -q yandex_wiki_mcp
 
       - name: Build
         run: uv build
@@ -30,4 +51,5 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
