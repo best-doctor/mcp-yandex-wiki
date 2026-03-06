@@ -1,0 +1,29 @@
+.github/workflows/ci.yml
+  f19ce90773c10a74 18,21
+README.md
+  f19ce90773c10a74 3-5,9-10,57,70,77,80,86,95,99,107,117,122,133,141,153,161
+pyproject.toml
+  f19ce90773c10a74 6,10,12-24,34-37,40-41
+.github/workflows/publish.yml
+  f19ce90773c10a74 10-12,18,21-45,54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "451b01fb87bf3fc80b476a02ee8aabb7ea8b14e6",
+  "prompts": {
+    "f19ce90773c10a74": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bae8bf8e-e313-4bb2-9ff8-59b719e524d5",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 78,
+      "total_deletions": 37,
+      "accepted_lines": 76,
+      "overriden_lines": 0
+    }
+  }
+}
