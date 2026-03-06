@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import Field, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from fastmcp import FastMCP
 
@@ -17,7 +17,8 @@ mcp = FastMCP("yandex-wiki")
 DEFAULT_FIELDS = "content,attributes,breadcrumbs,redirect"
 HTTP_TRANSPORTS = {"http", "streamable-http", "sse"}
 SERVER_READONLY = False
-TOOLS_CACHE_PREFIX = "yandex_wiki_mcp:tools_cache"
+TOOLS_CACHE_PREFIX = "yandex_wiki_mcp:tools_cache:v2json"
+_CACHE_INDEX_ADAPTER = TypeAdapter(list[str])
 
 
 class _RuntimeEnv(BaseSettings):
@@ -136,11 +137,17 @@ def _build_tools_cache() -> tuple[Any | None, int]:
 
     try:
         from aiocache import Cache
-        from aiocache.serializers import PickleSerializer
+        from aiocache.serializers import JsonSerializer
     except ImportError as exc:
         raise RuntimeError(
             "Для TOOLS_CACHE_ENABLED=true требуется зависимость aiocache[redis].",
         ) from exc
+
+    class _RedisJsonSerializer(JsonSerializer):
+        def dumps(self, value):
+            if not isinstance(value, (dict, list)):
+                return json.dumps(value)
+            return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
     cache = Cache(
         Cache.REDIS,
@@ -149,7 +156,7 @@ def _build_tools_cache() -> tuple[Any | None, int]:
         db=settings.redis_db,
         password=settings.redis_password,
         pool_max_size=settings.redis_pool_max_size,
-        serializer=PickleSerializer(),
+        serializer=_RedisJsonSerializer(),
     )
     ttl = settings.redis_ttl
     return cache, ttl
@@ -226,13 +233,51 @@ def _extract_page_slug(payload: Any) -> str | None:
     return normalized or None
 
 
+def _validate_cache_index(raw_value: Any) -> list[str] | None:
+    try:
+        values = _CACHE_INDEX_ADAPTER.validate_python(raw_value)
+    except ValidationError:
+        return None
+
+    if any(not isinstance(item, str) or not item for item in values):
+        return None
+
+    return values
+
+
+def _validate_cached_payload(raw_value: Any) -> Any | None:
+    try:
+        json.dumps(
+            raw_value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        return None
+    return raw_value
+
+
+def _validate_cached_slug(raw_value: Any) -> str | None:
+    if not isinstance(raw_value, str):
+        return None
+    normalized = _normalize_slug(raw_value)
+    return normalized or None
+
+
 async def _cache_index_add(index_key: str, cache_key: str):
     if TOOLS_CACHE is None:
         return
 
     existing_keys = await TOOLS_CACHE.get(index_key)
-    if not isinstance(existing_keys, list):
+    validated_keys = _validate_cache_index(existing_keys)
+    if existing_keys is not None and validated_keys is None:
+        await TOOLS_CACHE.delete(index_key)
+        validated_keys = []
+    if validated_keys is None:
         existing_keys = []
+    else:
+        existing_keys = validated_keys
 
     if cache_key not in existing_keys:
         existing_keys.append(cache_key)
@@ -244,8 +289,13 @@ async def _cache_invalidate_index(index_key: str):
         return
 
     existing_keys = await TOOLS_CACHE.get(index_key)
-    if isinstance(existing_keys, list):
-        for cache_key in set(existing_keys):
+    validated_keys = _validate_cache_index(existing_keys)
+    if existing_keys is not None and validated_keys is None:
+        await TOOLS_CACHE.delete(index_key)
+        return
+
+    if validated_keys is not None:
+        for cache_key in set(validated_keys):
             await TOOLS_CACHE.delete(cache_key)
 
     await TOOLS_CACHE.delete(index_key)
@@ -254,9 +304,12 @@ async def _cache_invalidate_index(index_key: str):
 async def _cache_link_page(page_id: int, slug: str):
     if TOOLS_CACHE is None:
         return
+    normalized_slug = _normalize_slug(slug)
+    if not normalized_slug:
+        return
     await TOOLS_CACHE.set(
         _cache_page_slug_mapping_key(page_id),
-        _normalize_slug(slug),
+        normalized_slug,
         ttl=_cache_ttl_or_none(),
     )
 
@@ -294,7 +347,11 @@ async def _invalidate_page_cache(page_id: int | None = None, slug: str | None = 
 
     if page_id is not None:
         await _cache_invalidate_index(_cache_page_index_key(page_id))
-        mapped_slug = await TOOLS_CACHE.get(_cache_page_slug_mapping_key(page_id))
+        mapping_key = _cache_page_slug_mapping_key(page_id)
+        mapped_slug_raw = await TOOLS_CACHE.get(mapping_key)
+        mapped_slug = _validate_cached_slug(mapped_slug_raw)
+        if mapped_slug_raw is not None and mapped_slug is None:
+            await TOOLS_CACHE.delete(mapping_key)
         await TOOLS_CACHE.delete(_cache_page_slug_mapping_key(page_id))
 
         if not normalized_slug and isinstance(mapped_slug, str):
@@ -369,7 +426,10 @@ async def _request_get(path: str, params: dict | None = None, *, cache_slug: str
         return _with_cache_hit(payload, cache_hit=False)
 
     cache_key = _cache_key_for_get(path=path, params=params)
-    cached_payload = await TOOLS_CACHE.get(cache_key)
+    raw_cached_payload = await TOOLS_CACHE.get(cache_key)
+    cached_payload = _validate_cached_payload(raw_cached_payload)
+    if raw_cached_payload is not None and cached_payload is None:
+        await TOOLS_CACHE.delete(cache_key)
     if cached_payload is not None:
         await _cache_register_page_entry(
             cache_key=cache_key,
@@ -382,13 +442,17 @@ async def _request_get(path: str, params: dict | None = None, *, cache_slug: str
     if _is_error_result(payload):
         return _with_cache_hit(payload, cache_hit=False)
 
-    await TOOLS_CACHE.set(cache_key, payload, ttl=_cache_ttl_or_none())
+    validated_payload = _validate_cached_payload(payload)
+    if validated_payload is None:
+        return _error_response(500, "Получен некорректный формат ответа для кэширования.")
+
+    await TOOLS_CACHE.set(cache_key, validated_payload, ttl=_cache_ttl_or_none())
     await _cache_register_page_entry(
         cache_key=cache_key,
         request_slug=cache_slug,
-        response_payload=payload,
+        response_payload=validated_payload,
     )
-    return _with_cache_hit(payload, cache_hit=False)
+    return _with_cache_hit(validated_payload, cache_hit=False)
 
 
 async def _get_page_by_slug(slug: str, fields: str, raise_on_redirect: bool = False):
