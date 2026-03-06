@@ -8,6 +8,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from pydantic import Field, ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from fastmcp import FastMCP
 
 mcp = FastMCP("yandex-wiki")
@@ -18,34 +20,42 @@ SERVER_READONLY = False
 TOOLS_CACHE_PREFIX = "yandex_wiki_mcp:tools_cache"
 
 
-def _parse_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+class _RuntimeEnv(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="", case_sensitive=False)
+
+    wiki_token: str | None = Field(default=None, validation_alias="WIKI_TOKEN")
+    tracker_token: str | None = Field(default=None, validation_alias="TRACKER_TOKEN")
+    wiki_org_id: str | None = Field(default=None, validation_alias="WIKI_ORG_ID")
+    tracker_org_id: str | None = Field(default=None, validation_alias="TRACKER_ORG_ID")
+    wiki_api_base_url: str = Field(
+        default="https://api.wiki.yandex.net/v1",
+        validation_alias="WIKI_API_BASE_URL",
+    )
 
 
-def _parse_int_env(var_name: str, default: int, *, minimum: int = 0) -> int:
-    raw_value = os.getenv(var_name)
-    if raw_value is None or not raw_value.strip():
-        return default
+class _ToolsCacheEnv(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="", case_sensitive=False)
 
-    try:
-        parsed_value = int(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(f"Переменная {var_name} должна быть целым числом.") from exc
+    enabled: bool = Field(default=False, validation_alias="TOOLS_CACHE_ENABLED")
+    redis_endpoint: str = Field(default="localhost", validation_alias="REDIS_ENDPOINT")
+    redis_port: int = Field(default=6379, ge=1, validation_alias="REDIS_PORT")
+    redis_db: int = Field(default=0, ge=0, validation_alias="REDIS_DB")
+    redis_password: str | None = Field(default=None, validation_alias="REDIS_PASSWORD")
+    redis_pool_max_size: int = Field(default=10, ge=1, validation_alias="REDIS_POOL_MAX_SIZE")
+    redis_ttl: int = Field(default=3600, ge=0, validation_alias="TOOLS_CACHE_REDIS_TTL")
 
-    if parsed_value < minimum:
-        raise RuntimeError(
-            f"Переменная {var_name} должна быть >= {minimum}, получено: {parsed_value}.",
-        )
 
-    return parsed_value
+class _ReadonlyEnv(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="", case_sensitive=False)
+
+    readonly: bool = Field(default=False, validation_alias="READONLY")
 
 
 def _runtime_settings() -> tuple[str, str, str]:
-    token = os.getenv("WIKI_TOKEN") or os.getenv("TRACKER_TOKEN")
-    org_id = os.getenv("WIKI_ORG_ID") or os.getenv("TRACKER_ORG_ID")
-    base_url = os.getenv("WIKI_API_BASE_URL", "https://api.wiki.yandex.net/v1")
+    env = _RuntimeEnv()
+    token = env.wiki_token or env.tracker_token
+    org_id = env.wiki_org_id or env.tracker_org_id
+    base_url = env.wiki_api_base_url
     return token or "", org_id or "", base_url
 
 
@@ -115,12 +125,13 @@ def _assert_write_enabled(tool_name: str):
     return None
 
 
-def _tools_cache_enabled() -> bool:
-    return _parse_bool(os.getenv("TOOLS_CACHE_ENABLED"), default=False)
-
-
 def _build_tools_cache() -> tuple[Any | None, int]:
-    if not _tools_cache_enabled():
+    try:
+        settings = _ToolsCacheEnv()
+    except ValidationError as exc:
+        raise RuntimeError("Некорректные значения переменных окружения кэша:") from exc
+
+    if not settings.enabled:
         return None, 0
 
     try:
@@ -133,14 +144,14 @@ def _build_tools_cache() -> tuple[Any | None, int]:
 
     cache = Cache(
         Cache.REDIS,
-        endpoint=os.getenv("REDIS_ENDPOINT", "localhost"),
-        port=_parse_int_env("REDIS_PORT", 6379, minimum=1),
-        db=_parse_int_env("REDIS_DB", 0, minimum=0),
-        password=os.getenv("REDIS_PASSWORD"),
-        pool_max_size=_parse_int_env("REDIS_POOL_MAX_SIZE", 10, minimum=1),
+        endpoint=settings.redis_endpoint,
+        port=settings.redis_port,
+        db=settings.redis_db,
+        password=settings.redis_password,
+        pool_max_size=settings.redis_pool_max_size,
         serializer=PickleSerializer(),
     )
-    ttl = _parse_int_env("TOOLS_CACHE_REDIS_TTL", 3600, minimum=0)
+    ttl = settings.redis_ttl
     return cache, ttl
 
 
@@ -584,7 +595,7 @@ def _build_parser(default_transport: str) -> argparse.ArgumentParser:
 
 
 def _configure_readonly(cli_readonly: bool, forced_readonly: bool = False) -> bool:
-    return forced_readonly or cli_readonly or _parse_bool(os.getenv("READONLY"), default=False)
+    return forced_readonly or cli_readonly or _ReadonlyEnv().readonly
 
 
 def _run_mcp(transport: str, host: str, port: int, path: str):
