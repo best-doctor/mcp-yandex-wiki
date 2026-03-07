@@ -1,0 +1,23 @@
+yandex_wiki_mcp/server.py
+  29b661d3f118e8bf 17-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "23488260e4b9cc32bca5cedd9520e746b6a14989",
+  "prompts": {
+    "29b661d3f118e8bf": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f6cf2ade-6a4e-4f6f-b87c-bf17a43dfd61",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 1,
+      "accepted_lines": 32,
+      "overriden_lines": 0
+    }
+  }
+}
