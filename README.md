@@ -13,6 +13,8 @@
 
 1. Установить `uv` [(если ещё не установлен)](https://docs.astral.sh/uv/getting-started/installation/).
 2. Получить OAuth-токен Яндекс и `org_id`.
+2.1. Создать приложение на https://oauth.yandex.ru/ с правами Wiki
+2.2. Подставить client_id в https://oauth.yandex.ru/authorize?response_type=token&client_id=<CLIENT_ID> и авторизоваться
 
 ## Переменные окружения
 
