@@ -1,0 +1,23 @@
+README.md
+  d778108e736cf13a 15-21,132-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "44014bf4c4116d315636b7fc458ec8585fcd4a2a",
+  "prompts": {
+    "d778108e736cf13a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "584d957e-5923-4ce1-9d99-b2330fea2895",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 49,
+      "total_deletions": 3,
+      "accepted_lines": 49,
+      "overriden_lines": 0
+    }
+  }
+}
