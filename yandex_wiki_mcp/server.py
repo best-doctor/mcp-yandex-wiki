@@ -18,7 +18,7 @@ mcp = FastMCP(
     instructions=(
         "Этот сервер предоставляет доступ к Яндекс Вики (wiki.yandex.ru). "
         "Когда пользователь присылает ссылку вида https://wiki.yandex.ru/..., "
-        "используй wiki_page_get_by_url или wiki_page_get_text_by_url для получения содержимого страницы. "
+        "используй wiki_page_get_text_by_url или wiki_page_get_by_url для получения содержимого страницы. "
         "НЕ используй WebFetch или WebSearch для wiki.yandex.ru — они не пройдут аутентификацию."
     ),
 )
