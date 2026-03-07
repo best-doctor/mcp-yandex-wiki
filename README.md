@@ -12,9 +12,13 @@
 ## Установка
 
 1. Установить `uv` [(если ещё не установлен)](https://docs.astral.sh/uv/getting-started/installation/).
-2. Получить OAuth-токен Яндекс и `org_id`.
-2.1. Создать приложение на https://oauth.yandex.ru/ с правами Wiki
-2.2. Подставить client_id в https://oauth.yandex.ru/authorize?response_type=token&client_id=<CLIENT_ID> и авторизоваться
+2. Получить OAuth-токен Яндекс и `org_id`:
+   1. Создать приложение на [oauth.yandex.ru](https://oauth.yandex.ru/) с правами Wiki.
+   2. Подставить `client_id` в URL:
+      ```
+      https://oauth.yandex.ru/authorize?response_type=token&client_id=<CLIENT_ID>
+      ```
+      и авторизоваться.
 
 ## Переменные окружения
 
@@ -124,6 +128,48 @@ command = "uvx"
 args = ["--from", "mcp-yandex-wiki", "mcp-yandex-wiki-ro"]
 env = { WIKI_TOKEN = "your_token", WIKI_ORG_ID = "your_org_id" }
 ```
+
+### Cursor
+
+1. Открыть **Settings** → **Cursor Settings** → **MCP** → **+ Add new global MCP server**.
+   Откроется файл `~/.cursor/mcp.json`.
+2. Добавить конфигурацию:
+
+```json
+{
+  "mcpServers": {
+    "yandex-wiki": {
+      "command": "uvx",
+      "args": ["mcp-yandex-wiki"],
+      "env": {
+        "WIKI_TOKEN": "your_token",
+        "WIKI_ORG_ID": "your_org_id"
+      }
+    }
+  }
+}
+```
+
+Для read-only режима:
+
+```json
+{
+  "mcpServers": {
+    "yandex-wiki-ro": {
+      "command": "uvx",
+      "args": ["--from", "mcp-yandex-wiki", "mcp-yandex-wiki-ro"],
+      "env": {
+        "WIKI_TOKEN": "your_token",
+        "WIKI_ORG_ID": "your_org_id"
+      }
+    }
+  }
+}
+```
+
+> Можно также добавить на уровне проекта — создайте файл `.cursor/mcp.json` в корне репозитория с аналогичным содержимым.
+
+3. Вернуться в **Settings** → **MCP** и убедиться, что у сервера зелёный индикатор (статус «running»).
 
 ### Другие MCP-клиенты (JSON, общий шаблон)
 
