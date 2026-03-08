@@ -25,17 +25,14 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          import tomllib
-          from pathlib import Path
+          from yandex_wiki_mcp.__about__ import __version__ as package_version
 
-          data = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
-          package_version = data['project']['version']
           tag = os.environ['GITHUB_REF_NAME']
           expected = tag[1:] if tag.startswith('v') else tag
 
           if package_version != expected:
               raise SystemExit(
-                  f"Version mismatch: pyproject.toml has {package_version}, but tag is {tag}. "
+                  f"Version mismatch: __about__.py has {package_version}, but tag is {tag}. "
                   f"Set version to {expected} before creating tag."
               )
           print(f"Version matched: {package_version}")

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-yandex-wiki"
-version = "0.0.1"
+dynamic = ["version"]
 description = "MCP server for Yandex Wiki with read/write tools and readonly mode"
 readme = "README.md"
 license = "MIT"
@@ -26,7 +26,7 @@ dependencies = [
   "aiocache[redis]>=0.12.3",
   "backoff>=2.2.1",
   "pydantic-settings>=2.13.1",
-  "fastmcp>=2.0.0",
+  "fastmcp>=3.1.0",
   "httpx>=0.27.0",
 ]
 keywords = ["mcp", "yandex", "wiki", "fastmcp"]
@@ -39,6 +39,9 @@ Issues = "https://github.com/best-doctor/yandex-wiki-mcp/issues"
 [project.scripts]
 mcp-yandex-wiki = "yandex_wiki_mcp.server:main"
 mcp-yandex-wiki-ro = "yandex_wiki_mcp.server:main_readonly"
+
+[tool.hatch.version]
+path = "yandex_wiki_mcp/__about__.py"
 
 [tool.hatch.build]
 ignore-vcs = true

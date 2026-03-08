@@ -211,3 +211,34 @@ env = { WIKI_TOKEN = "your_token", WIKI_ORG_ID = "your_org_id" }
 - `wiki_page_get_by_url`
 - `wiki_page_get_text_by_url`
 - write-инструменты возвращают `403`
+
+## Отладка (MCP Inspector)
+
+Для интерактивной отладки MCP-сервера можно использовать [MCP Inspector](https://github.com/modelcontextprotocol/inspector).
+
+1. Запустить сервер в режиме SSE:
+
+```bash
+uv run fastmcp run yandex_wiki_mcp/server.py --transport sse
+```
+
+2. В другом терминале запустить Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector@latest
+```
+
+3. В открывшемся интерфейсе Inspector выбрать **Transport Type: SSE** и указать URL:
+
+```
+http://localhost:8000/sse
+```
+
+4. Нажать **Connect** — Inspector подключится к серверу и покажет список доступных инструментов, позволяя вызывать их вручную и видеть ответы.
+
+## Настройки FastMCP для production
+
+Сервер поддерживает переменные окружения FastMCP для тонкой настройки поведения:
+
+- `FASTMCP_MASK_ERROR_DETAILS` — при `true` маскирует детали ошибок в ответах клиентам. Показываются только сообщения из явно выброшенных `ToolError`. Рекомендуется для production.
+- `FASTMCP_STRICT_INPUT_VALIDATION` — при `true` включает строгую валидацию входных данных инструментов по JSON-схемам. При `false` (по умолчанию) допускаются совместимые преобразования типов (например, строка `"10"` → число `10`).

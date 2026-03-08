@@ -4,7 +4,8 @@ import argparse
 import hashlib
 import json
 import os
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Annotated, Any
 from urllib.parse import urlparse
 
 import backoff
@@ -12,15 +13,31 @@ import httpx
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.context import Context
+from mcp.types import ToolAnnotations
+
+from importlib.metadata import version
+
+__version__ = version("mcp-yandex-wiki")
+
+
+@asynccontextmanager
+async def _lifespan(server: FastMCP):
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        yield {"http_client": client}
+
 
 mcp = FastMCP(
     "yandex-wiki",
+    version=__version__,
     instructions=(
-        "Этот сервер предоставляет доступ к Яндекс Вики (wiki.yandex.ru). "
-        "Когда пользователь присылает ссылку вида https://wiki.yandex.ru/..., "
-        "используй wiki_page_get_text_by_url или wiki_page_get_by_url для получения содержимого страницы. "
-        "НЕ используй WebFetch или WebSearch для wiki.yandex.ru — они не пройдут аутентификацию."
+        "This server provides access to Yandex Wiki (wiki.yandex.ru). "
+        "When the user sends a link like https://wiki.yandex.ru/..., "
+        "use wiki_page_get_text_by_url or wiki_page_get_by_url to retrieve the page content. "
+        "Do NOT use WebFetch or WebSearch for wiki.yandex.ru — they will fail authentication."
     ),
+    lifespan=_lifespan,
 )
 
 DEFAULT_FIELDS = "content,attributes,breadcrumbs,redirect"
@@ -116,23 +133,26 @@ def _error_response(status_code: int, error: str) -> dict:
     return {"ok": False, "status_code": status_code, "error": error}
 
 
-def _normalize_page_id(page_id: int) -> tuple[int | None, dict | None]:
+def _normalize_page_id(page_id: int) -> int:
     try:
         normalized = int(page_id)
     except (TypeError, ValueError):
-        return None, _error_response(400, "Параметр page_id должен быть целым числом.")
+        raise ToolError("Параметр page_id должен быть целым числом.")
     if normalized <= 0:
-        return None, _error_response(400, "Параметр page_id должен быть положительным целым числом.")
-    return normalized, None
+        raise ToolError("Параметр page_id должен быть положительным целым числом.")
+    return normalized
 
 
 def _assert_write_enabled(tool_name: str):
     if SERVER_READONLY:
-        return _error_response(
-            403,
-            f"Инструмент '{tool_name}' отключен: сервер запущен в режиме readonly.",
-        )
-    return None
+        raise ToolError(f"Инструмент '{tool_name}' отключен: сервер запущен в режиме readonly.")
+
+
+def _get_http_client(ctx: Context) -> httpx.AsyncClient:
+    client = (ctx.lifespan_context or {}).get("http_client")
+    if client is None:
+        raise ToolError("HTTP-клиент недоступен: lifespan не инициализирован.")
+    return client
 
 
 def _build_tools_cache() -> tuple[Any | None, int]:
@@ -370,7 +390,14 @@ async def _invalidate_page_cache(page_id: int | None = None, slug: str | None = 
         await _cache_invalidate_index(_cache_slug_index_key(normalized_slug))
 
 
-async def _request(method: str, path: str, params: dict | None = None, body: dict | None = None):
+async def _request(
+    method: str,
+    path: str,
+    params: dict | None = None,
+    body: dict | None = None,
+    *,
+    http_client: httpx.AsyncClient,
+):
     try:
         token, org_id, base_url = _require_env()
     except RuntimeError as exc:
@@ -397,16 +424,16 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
         giveup=lambda e: isinstance(e, httpx.HTTPStatusError) and e.response is not None and e.response.status_code < 500,
     )
     async def _send_request() -> httpx.Response:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(
-                method=method,
-                url=request_url,
-                headers=headers,
-                params=params,
-                json=body,
-            )
-            response.raise_for_status()
-            return response
+        client = http_client
+        response = await client.request(
+            method=method,
+            url=request_url,
+            headers=headers,
+            params=params,
+            json=body,
+        )
+        response.raise_for_status()
+        return response
 
     try:
         response = await _send_request()
@@ -467,9 +494,15 @@ async def _request(method: str, path: str, params: dict | None = None, body: dic
         }
 
 
-async def _request_get(path: str, params: dict | None = None, *, cache_slug: str | None = None) -> Any:
+async def _request_get(
+    path: str,
+    params: dict | None = None,
+    *,
+    cache_slug: str | None = None,
+    http_client: httpx.AsyncClient,
+) -> Any:
     if TOOLS_CACHE is None:
-        payload = await _request(method="GET", path=path, params=params)
+        payload = await _request(method="GET", path=path, params=params, http_client=http_client)
         return _with_cache_hit(payload, cache_hit=False)
 
     cache_key = _cache_key_for_get(path=path, params=params)
@@ -485,7 +518,7 @@ async def _request_get(path: str, params: dict | None = None, *, cache_slug: str
         )
         return _with_cache_hit(cached_payload, cache_hit=True)
 
-    payload = await _request(method="GET", path=path, params=params)
+    payload = await _request(method="GET", path=path, params=params, http_client=http_client)
     if _is_error_result(payload):
         return _with_cache_hit(payload, cache_hit=False)
 
@@ -502,36 +535,74 @@ async def _request_get(path: str, params: dict | None = None, *, cache_slug: str
     return _with_cache_hit(validated_payload, cache_hit=False)
 
 
-async def _get_page_by_slug(slug: str, fields: str, raise_on_redirect: bool = False):
+async def _get_page_by_slug(
+    slug: str,
+    fields: str,
+    raise_on_redirect: bool = False,
+    *,
+    http_client: httpx.AsyncClient,
+) -> dict:
     normalized_slug = _normalize_slug(slug)
     if not normalized_slug:
-        return _error_response(400, "Параметр slug не должен быть пустым.")
+        raise ToolError("Параметр slug не должен быть пустым.")
 
     params = {
         "slug": normalized_slug,
         "fields": _normalize_fields(fields),
         "raise_on_redirect": str(bool(raise_on_redirect)).lower(),
     }
-    return await _request_get(path="/pages", params=params, cache_slug=normalized_slug)
+    return await _request_get(path="/pages", params=params, cache_slug=normalized_slug, http_client=http_client)
 
 
-@mcp.tool()
-async def wiki_page_get_by_url(url: str, fields: str = DEFAULT_FIELDS, raise_on_redirect: bool = False):
+@mcp.tool(
+    tags={"read", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+async def wiki_page_get_by_url(
+    url: Annotated[str, Field(description="Полная ссылка на страницу, например https://wiki.yandex.ru/users/handbook/")],
+    ctx: Context,
+    fields: str = Field(default=DEFAULT_FIELDS, description="Поля через запятую: content, attributes, breadcrumbs, redirect"),
+    raise_on_redirect: bool = Field(default=False, description="Вернуть ошибку при редиректе вместо автоматического перехода"),
+) -> dict:
     """Read-only: получить страницу по полной ссылке вида https://wiki.yandex.ru/<path...>/"""
     slug = _slug_from_full_url(url)
-    return await _get_page_by_slug(slug=slug, fields=fields, raise_on_redirect=raise_on_redirect)
+    await ctx.info(f"Запрашиваю страницу по URL: {url} (slug={slug})")
+    http_client = _get_http_client(ctx)
+    return await _get_page_by_slug(slug=slug, fields=fields, raise_on_redirect=raise_on_redirect, http_client=http_client)
 
 
-@mcp.tool()
-async def wiki_page_get(slug: str, fields: str = DEFAULT_FIELDS, raise_on_redirect: bool = False):
+@mcp.tool(
+    tags={"read", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+async def wiki_page_get(
+    slug: Annotated[str, Field(description="Путь страницы без домена, например 'users/handbook/onboarding'")],
+    ctx: Context,
+    fields: str = Field(default=DEFAULT_FIELDS, description="Поля через запятую: content, attributes, breadcrumbs, redirect"),
+    raise_on_redirect: bool = Field(default=False, description="Вернуть ошибку при редиректе вместо автоматического перехода"),
+) -> dict:
     """Read-only: получить страницу по slug (путь без домена)."""
-    return await _get_page_by_slug(slug=slug, fields=fields, raise_on_redirect=raise_on_redirect)
+    await ctx.info(f"Запрашиваю страницу: {slug}")
+    http_client = _get_http_client(ctx)
+    return await _get_page_by_slug(slug=slug, fields=fields, raise_on_redirect=raise_on_redirect, http_client=http_client)
 
 
-@mcp.tool()
-async def wiki_page_get_text_by_url(url: str):
+@mcp.tool(
+    tags={"read", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+async def wiki_page_get_text_by_url(
+    url: Annotated[str, Field(description="Полная ссылка на страницу, например https://wiki.yandex.ru/users/handbook/")],
+    ctx: Context,
+) -> dict:
     """Read-only: вернуть только content страницы по полной ссылке."""
-    data = await wiki_page_get_by_url(url=url, fields="content")
+    slug = _slug_from_full_url(url)
+    await ctx.info(f"Запрашиваю текст страницы по URL: {url} (slug={slug})")
+    http_client = _get_http_client(ctx)
+    data = await _get_page_by_slug(slug=slug, fields="content", http_client=http_client)
     if isinstance(data, dict) and data.get("ok") is False:
         return data
     result = {"ok": True, "content": data.get("content")}
@@ -540,26 +611,31 @@ async def wiki_page_get_text_by_url(url: str):
     return result
 
 
-@mcp.tool()
+@mcp.tool(
+    tags={"write", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False),
+)
 async def wiki_page_create(
-    slug: str,
-    title: str,
-    content: str,
-    page_type: str = "wysiwyg",
-    fields: str = DEFAULT_FIELDS,
-    is_silent: bool = False,
-):
+    slug: Annotated[str, Field(description="Путь новой страницы без домена, например 'users/handbook/new-page'")],
+    title: Annotated[str, Field(description="Заголовок страницы")],
+    content: Annotated[str, Field(description="Содержимое страницы в формате Wiki/WYSIWYG")],
+    ctx: Context,
+    page_type: str = Field(default="wysiwyg", description="Тип страницы: wysiwyg или wikitext"),
+    fields: str = Field(default=DEFAULT_FIELDS, description="Поля в ответе через запятую: content, attributes, breadcrumbs, redirect"),
+    is_silent: bool = Field(default=False, description="Не отправлять уведомления подписчикам"),
+) -> dict:
     """Write: создать новую страницу."""
-    readonly_error = _assert_write_enabled("wiki_page_create")
-    if readonly_error:
-        return readonly_error
+    await ctx.info(f"Создаю страницу: {slug} (title={title!r})")
+    _assert_write_enabled("wiki_page_create")
 
     normalized_slug = _normalize_slug(slug)
     if not normalized_slug:
-        return _error_response(400, "Параметр slug не должен быть пустым.")
+        raise ToolError("Параметр slug не должен быть пустым.")
     if not (title or "").strip():
-        return _error_response(400, "Параметр title не должен быть пустым.")
+        raise ToolError("Параметр title не должен быть пустым.")
 
+    http_client = _get_http_client(ctx)
     body = {
         "page_type": page_type,
         "slug": normalized_slug,
@@ -570,7 +646,7 @@ async def wiki_page_create(
         "fields": _normalize_fields(fields),
         "is_silent": str(bool(is_silent)).lower(),
     }
-    result = await _request(method="POST", path="/pages", params=params, body=body)
+    result = await _request(method="POST", path="/pages", params=params, body=body, http_client=http_client)
     if not _is_error_result(result):
         await _invalidate_page_cache(
             page_id=_extract_page_id(result),
@@ -579,41 +655,43 @@ async def wiki_page_create(
     return result
 
 
-@mcp.tool()
+@mcp.tool(
+    tags={"write", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
 async def wiki_page_update(
-    page_id: int,
-    title: str | None = None,
-    content: str | None = None,
-    allow_merge: bool = False,
-    fields: str = DEFAULT_FIELDS,
-    is_silent: bool = False,
-):
+    page_id: Annotated[int, Field(description="Числовой ID страницы для обновления")],
+    ctx: Context,
+    title: str | None = Field(default=None, description="Новый заголовок страницы (None — не менять)"),
+    content: str | None = Field(default=None, description="Новое содержимое страницы (None — не менять)"),
+    allow_merge: bool = Field(default=False, description="Разрешить слияние при конфликте версий"),
+    fields: str = Field(default=DEFAULT_FIELDS, description="Поля в ответе через запятую: content, attributes, breadcrumbs, redirect"),
+    is_silent: bool = Field(default=False, description="Не отправлять уведомления подписчикам"),
+) -> dict:
     """Write: обновить существующую страницу по ID (заголовок и/или контент)."""
-    readonly_error = _assert_write_enabled("wiki_page_update")
-    if readonly_error:
-        return readonly_error
-
-    normalized_page_id, page_id_error = _normalize_page_id(page_id)
-    if page_id_error:
-        return page_id_error
+    await ctx.info(f"Обновляю страницу ID={page_id}")
+    _assert_write_enabled("wiki_page_update")
+    normalized_page_id = _normalize_page_id(page_id)
 
     body = {}
     if title is not None:
         stripped_title = title.strip()
         if not stripped_title:
-            return _error_response(400, "Если title передан, он не должен быть пустым.")
+            raise ToolError("Если title передан, он не должен быть пустым.")
         body["title"] = stripped_title
     if content is not None:
         body["content"] = content
     if not body:
-        return _error_response(400, "Нужно передать хотя бы одно поле для обновления: title или content.")
+        raise ToolError("Нужно передать хотя бы одно поле для обновления: title или content.")
 
+    http_client = _get_http_client(ctx)
     params = {
         "allow_merge": str(bool(allow_merge)).lower(),
         "fields": _normalize_fields(fields),
         "is_silent": str(bool(is_silent)).lower(),
     }
-    result = await _request(method="POST", path=f"/pages/{normalized_page_id}", params=params, body=body)
+    result = await _request(method="POST", path=f"/pages/{normalized_page_id}", params=params, body=body, http_client=http_client)
     if not _is_error_result(result):
         await _invalidate_page_cache(
             page_id=normalized_page_id,
@@ -622,25 +700,26 @@ async def wiki_page_update(
     return result
 
 
-@mcp.tool()
+@mcp.tool(
+    tags={"write", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False),
+)
 async def wiki_page_append_content(
-    page_id: int,
-    content: str,
-    location: str = "bottom",
-    fields: str = DEFAULT_FIELDS,
-    is_silent: bool = False,
-):
+    page_id: Annotated[int, Field(description="Числовой ID страницы")],
+    content: Annotated[str, Field(description="Содержимое для добавления")],
+    ctx: Context,
+    location: str = Field(default="bottom", description="Позиция вставки: top, bottom или якорь в формате #anchor"),
+    fields: str = Field(default=DEFAULT_FIELDS, description="Поля в ответе через запятую: content, attributes, breadcrumbs, redirect"),
+    is_silent: bool = Field(default=False, description="Не отправлять уведомления подписчикам"),
+) -> dict:
     """Write: добавить контент в начало/конец страницы или по якорю (#anchor)."""
-    readonly_error = _assert_write_enabled("wiki_page_append_content")
-    if readonly_error:
-        return readonly_error
-
-    normalized_page_id, page_id_error = _normalize_page_id(page_id)
-    if page_id_error:
-        return page_id_error
+    await ctx.info(f"Добавляю контент к странице ID={page_id} (location={location})")
+    _assert_write_enabled("wiki_page_append_content")
+    normalized_page_id = _normalize_page_id(page_id)
 
     if not (content or "").strip():
-        return _error_response(400, "Параметр content не должен быть пустым.")
+        raise ToolError("Параметр content не должен быть пустым.")
 
     body = {"content": content}
     normalized_location = (location or "").strip()
@@ -649,11 +728,9 @@ async def wiki_page_append_content(
     elif normalized_location.startswith("#"):
         body["anchor"] = {"name": normalized_location}
     else:
-        return _error_response(
-            400,
-            "Параметр location должен быть top, bottom или якорем в формате #anchor.",
-        )
+        raise ToolError("Параметр location должен быть top, bottom или якорем в формате #anchor.")
 
+    http_client = _get_http_client(ctx)
     params = {
         "fields": _normalize_fields(fields),
         "is_silent": str(bool(is_silent)).lower(),
@@ -663,6 +740,7 @@ async def wiki_page_append_content(
         path=f"/pages/{normalized_page_id}/append-content",
         params=params,
         body=body,
+        http_client=http_client,
     )
     if not _is_error_result(result):
         await _invalidate_page_cache(
