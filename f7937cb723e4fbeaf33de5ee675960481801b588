@@ -1,0 +1,89 @@
+.github/workflows/publish.yml
+  916eade8418cf6b0 28,35
+pyproject.toml
+  916eade8418cf6b0 7,43-45
+yandex_wiki_mcp/server.py
+  916eade8418cf6b0 7-8,16-18,21,23-29,33,40,140,142,148,397-399,427,501-502,505,521,541-544,547,554,558-560,563-567,570,572,576-578,581-585,587,589,593-595,598-600,602-603,605,615-617,620-627,629,634,636,649,659-661,664-671,673-675,681,686,694,704-706,709-715,717-719,722,731,743
+  d07641cad0203327 151-155,571,588,604,638,688,733
+  b95b84ff3a06ee95 35-38
+  9e475283bd337652 20,22
+yandex_wiki_mcp/__init__.py
+  916eade8418cf6b0 1,4
+yandex_wiki_mcp/__about__.py
+  916eade8418cf6b0 1
+README.md
+  916eade8418cf6b0 214,239-244
+  8ee02ee56d169b45 215-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "f7937cb723e4fbeaf33de5ee675960481801b588",
+  "prompts": {
+    "8ee02ee56d169b45": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "888f3b5e-312d-4c95-8eff-9aa2443692f1",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 0,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    },
+    "916eade8418cf6b0": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "2d7c4af3-b23b-490e-8aa6-edee81508508",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 232,
+      "total_deletions": 146,
+      "accepted_lines": 128,
+      "overriden_lines": 0
+    },
+    "9e475283bd337652": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5ca6997a-24eb-4ccf-8a95-bacd29581e5e",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 7,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "b95b84ff3a06ee95": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fdd7644c-425e-4738-aff3-cb1f7beaf65e",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "d07641cad0203327": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "84d13540-b1b6-48bf-a279-6101f7f81623",
+        "model": "claude-4.6-opus-high-thinking"
+      },
+      "human_author": "Vladislav Katolyk <v.katolyk@bestdoctor.ru>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 10,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
