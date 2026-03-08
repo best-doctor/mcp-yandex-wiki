@@ -612,6 +612,43 @@ async def wiki_page_get_text_by_url(
 
 
 @mcp.tool(
+    tags={"read", "wiki"},
+    timeout=60.0,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+async def wiki_page_resolve_id(
+    ctx: Context,
+    slug: str | None = Field(default=None, description="Путь страницы без домена, например 'users/handbook/onboarding'"),
+    url: str | None = Field(default=None, description="Полная ссылка на страницу, например https://wiki.yandex.ru/users/handbook/"),
+) -> dict:
+    """Read-only: получить page_id страницы по slug или полной ссылке. Используйте перед wiki_page_update / wiki_page_append_content, если известен только slug или URL."""
+    if url and not slug:
+        slug = _slug_from_full_url(url)
+    if not slug or not slug.strip():
+        raise ToolError("Необходимо указать slug или url.")
+
+    normalized_slug = _normalize_slug(slug)
+    if not normalized_slug:
+        raise ToolError("Параметр slug не должен быть пустым.")
+
+    await ctx.info(f"Резолвлю page_id для slug={normalized_slug}")
+    http_client = _get_http_client(ctx)
+    data = await _get_page_by_slug(slug=normalized_slug, fields="attributes", http_client=http_client)
+
+    if _is_error_result(data):
+        return data
+
+    resolved_id = _extract_page_id(data)
+    if resolved_id is None:
+        raise ToolError(f"Не удалось определить page_id для slug '{normalized_slug}'.")
+
+    result = {"ok": True, "page_id": resolved_id, "slug": normalized_slug}
+    if isinstance(data, dict) and isinstance(data.get("_mcp_cache_hit"), bool):
+        result["_mcp_cache_hit"] = data["_mcp_cache_hit"]
+    return result
+
+
+@mcp.tool(
     tags={"write", "wiki"},
     timeout=60.0,
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False),
