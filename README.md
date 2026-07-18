@@ -97,22 +97,27 @@ python -m yandex_wiki_mcp
 
 ### Claude Code
 
-```bash
-claude mcp add yandex-wiki uvx mcp-yandex-wiki \
-  -e WIKI_TOKEN=your_token \
-  -e WIKI_ORG_ID=your_org_id
+Требования: должен быть установлен `uvx` (входит в [uv](https://docs.astral.sh/uv/)).
 
-claude mcp add yandex-wiki-ro -- uvx --from mcp-yandex-wiki mcp-yandex-wiki-ro \
+```bash
+claude mcp add yandex-wiki \
   -e WIKI_TOKEN=your_token \
-  -e WIKI_ORG_ID=your_org_id
+  -e WIKI_ORG_ID=your_org_id \
+  -- uvx mcp-yandex-wiki
+
+claude mcp add yandex-wiki-ro \
+  -e WIKI_TOKEN=your_token \
+  -e WIKI_ORG_ID=your_org_id \
+  -- uvx --from mcp-yandex-wiki mcp-yandex-wiki-ro --readonly
 ```
 
 Если используете `TRACKER_*`-переменные, замените их на:
 
 ```bash
-claude mcp add yandex-wiki uvx mcp-yandex-wiki \
+claude mcp add yandex-wiki \
   -e TRACKER_TOKEN=your_token \
-  -e TRACKER_ORG_ID=your_org_id
+  -e TRACKER_ORG_ID=your_org_id \
+  -- uvx mcp-yandex-wiki
 ```
 
 ### Codex (конфиг проекта)
